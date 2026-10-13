@@ -56,6 +56,7 @@ Rules:
 - Written questions: first person, the candidate's voice, specific and concrete, plain British English, no clichés or filler. If maxLength is set, stay at least 10% under it (count characters); rewrite rather than truncate.
 - date fields (type "date"): YYYY-MM-DD.
 - status: "fill" when confident; "review" for judgement calls, written answers, legal ticks, or guessed options; "no_answer" only when the answer genuinely needs a fact the profile lacks (set value to ""); "skip" for things that should not be touched (fields already holding the right value, irrelevant optional fields, search boxes, add-row buttons).
+- Repeated sections (work experience, education, activities): fill rows in the order the profile gives; if the profile sets no order, most recent and most relevant first.
 - clicks: ids of "button" fields (e.g. "Add another" under Education or Work Experience) that must be pressed to create rows the profile needs. Never anything that submits or moves to the next page.
 - note: at most 12 words, only when useful (why it needs review, or what is missing).
 - company and role: read them from the page.`;
