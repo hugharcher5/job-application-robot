@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Job Application Robot</title>
+  <style>
+    body { font: 13px/1.4 system-ui, sans-serif; margin: 12px; color: #1a1a1a; }
+    h1 { font-size: 15px; margin: 0 0 8px; }
+    h2 { font-size: 13px; margin: 16px 0 6px; }
+    button { font: inherit; padding: 6px 10px; cursor: pointer; }
+    input, textarea { font: inherit; width: 100%; box-sizing: border-box; }
+    textarea { height: 120px; }
+    .muted { color: #666; }
+    .field { border-top: 1px solid #eee; padding: 4px 0; }
+    .req::after { content: " *"; color: #c00; }
+    #status { margin: 8px 0; }
+  </style>
+</head>
+<body>
+  <h1>Job Application Robot</h1>
+  <div id="status" class="muted">Open an application page, then click Scan.</div>
+  <button id="scan">Scan page</button>
+  <div id="fields"></div>
+
+  <h2>Settings</h2>
+  <label>Claude API key <input id="apiKey" type="password" placeholder="sk-ant-..."></label>
+  <p><button id="saveKey">Save key</button> <button id="testKey">Test connection</button></p>
+  <label>Profile (Markdown) <textarea id="profile" placeholder="Paste profile.md here"></textarea></label>
+  <p><button id="saveProfile">Save profile</button></p>
+
+  <script type="module" src="sidepanel.js"></script>
+</body>
+</html>
