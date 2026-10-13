@@ -33,9 +33,10 @@ side panel (UI) ── background service worker ── Claude API
    `{id, label, type, required, options[], maxLength, section}`.
    Custom dropdowns are opened to read their options.
 4. **Answer** in one Claude call: profile + job description + fields →
-   structured JSON `{fieldId: {value, confidence, note}}`. Dropdown answers must
+   structured JSON `answers: [{id, value, status, note}]` with status
+   fill / review / no_answer / skip, plus `clicks` for "Add another" buttons. Dropdown answers must
    be one of the listed options. Answers over `maxLength` are rewritten, not cut.
-5. **Fill** with adapter-specific setters: native value setter + input/change
+5. **Fill** with one generic engine that handles each widget type: native value setter + input/change
    events (React), click-to-select for custom dropdowns, typeahead search,
    `DataTransfer` for file inputs, contenteditable for rich text, "Add another"
    buttons for repeated sections.
@@ -43,22 +44,30 @@ side panel (UI) ── background service worker ── Claude API
    login/CAPTCHA steps are highlighted.
 7. **Cover letters**: Claude writes the body from the job description, profile
    and past letters; rendered to PDF in the letterhead template; attached.
-8. **Notion**: on the "thank you for applying" page, mark the role Done in the
-   Summer 2027 Applications tracker.
+8. **Notion**: when a page looks submitted the panel says so; pressing
+   **Mark applied** marks the role Done in the tracker.
 
 ## Phases
 
 | Phase | Scope |
 |---|---|
-| 0 | Repo, build, MV3 skeleton, side panel, profile storage, ATS detection, field scan, API key + connection test |
-| 1 | Greenhouse end to end: answers, dropdowns, CV upload, written answers, review panel |
-| 2 | Cover-letter PDF generation and upload |
-| 3 | Workday (multi-page, repeaters, date pickers, custom dropdowns) |
-| 4 | SmartRecruiters, Oleeo, Lever, Ashby; Notion logging |
+| 0 ✅ | Repo, build, MV3 skeleton, side panel, profile storage, ATS detection, field scan, API key + connection test |
+| 1 ✅ | Greenhouse end to end: answers, dropdowns, CV upload, written answers, review panel |
+| 2 ✅ | Cover-letter PDF generation and upload |
+| 3 🟡 | Workday (multi-page, repeaters, date pickers, custom dropdowns) |
+| 4 🟡 | SmartRecruiters, Oleeo, Lever, Ashby; Notion logging |
 | 5 | Product version (backend for keys, accounts, billing): decide first |
 
 ## Model
 
-`claude-opus-5-5` with low effort for form filling, higher for cover letters.
+`claude-opus-5-5`: medium effort for form filling, high for cover letters.
 Server-side refusal fallback enabled. Calls go from the extension to the API
 with Hugh's own key, stored in `chrome.storage.local`.
+
+## Status (v1.0)
+
+Phases 0–2 are built. Workday and the other systems use the same generic
+engine (custom dropdowns, search-on-Enter prompts, shadow DOM, "Add another"
+rows) and need testing on live forms. Known gaps: Workday split month/year date
+boxes and nested prompt menus; jumping to a field inside an embedded iframe
+doesn't scroll the parent page.
