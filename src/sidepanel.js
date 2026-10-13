@@ -66,6 +66,14 @@ function render(report) {
   }
 }
 
+// Brief confirmation on the button itself, since the status line can be off-screen.
+function confirmOn(button, text) {
+  const original = button.dataset.label || button.textContent;
+  button.dataset.label = original;
+  button.textContent = text;
+  setTimeout(() => (button.textContent = original), 2000);
+}
+
 async function busy(button, fn) {
   const buttons = document.querySelectorAll("button");
   buttons.forEach((b) => (b.disabled = true));
@@ -105,6 +113,7 @@ $("saveKey").onclick = async () => {
   await chrome.storage.local.set({ apiKey });
   $("apiKey").value = "";
   status("API key saved.");
+  confirmOn($("saveKey"), "Saved ✓");
 };
 
 $("testKey").onclick = () =>
@@ -140,6 +149,7 @@ $("saveSettings").onclick = async () => {
   $("notionToken").value = "";
   await loadSettings();
   status("Settings saved.");
+  confirmOn($("saveSettings"), "Saved ✓");
 };
 
 async function loadSettings() {
@@ -149,6 +159,9 @@ async function loadSettings() {
   $("notionDatabaseId").value = s.notionDatabaseId || "";
   $("cvName").textContent = s.cv ? `(saved: ${s.cv.name})` : "";
   $("transcriptName").textContent = s.transcript ? `(saved: ${s.transcript.name})` : "";
+  const keys = await chrome.storage.local.get(["apiKey", "notionToken"]);
+  $("apiKey").placeholder = keys.apiKey ? "Saved ✓ (paste a new key to replace)" : "sk-ant-…";
+  $("notionToken").placeholder = keys.notionToken ? "Saved ✓ (paste a new token to replace)" : "secret_… or ntn_…";
 }
 
 chrome.runtime.onMessage.addListener((msg) => {
