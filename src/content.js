@@ -284,6 +284,7 @@
         if (cur) field.current = cur.slice(0, 500);
       }
       if (required && kind !== "button") field.required = true;
+      registry.get(id).label = field.label;
       fields.push(field);
     }
 
@@ -387,6 +388,21 @@
 
   const picked = (m, text) => (m.exact ? null : { warn: `Picked "${norm(text).slice(0, 60)}"` });
 
+  // "White – Irish" -> ["White – Irish", "White"]: broader fallbacks for when a
+  // form only offers the general option.
+  function variants(value) {
+    const broad = value.split(/\s+[–—-]\s+|\s*\(|\s*\/\s*|,\s*/)[0].trim();
+    return broad.length >= 2 && broad !== value ? [value, broad] : [value];
+  }
+
+  function bestMatchAny(items, value, getText) {
+    for (const v of variants(value)) {
+      const m = bestMatch(items, v, getText);
+      if (m) return v === value ? m : { ...m, exact: false };
+    }
+    return null;
+  }
+
   async function pickFromPopup(el, value, kind) {
     el.scrollIntoView({ block: "center" });
     el.focus();
@@ -407,13 +423,15 @@
       if (kind === "combobox") key(el, "ArrowDown");
       await sleep(450);
     }
-    let m = bestMatch(visibleOptions(el), value, textOf);
+    let m = bestMatchAny(visibleOptions(el), value, textOf);
     if (!m && typeable) {
-      // Retry with the first word, for typeaheads that only match prefixes.
-      const first = value.split(/[\s,(]/)[0];
-      if (first && first !== value) {
-        await search(first);
-        m = bestMatch(visibleOptions(el), value, textOf);
+      // Retry with the broader answer, then the first word, for typeaheads
+      // that only match prefixes.
+      for (const text of [...variants(value).slice(1), value.split(/[\s,(]/)[0]]) {
+        if (!text || text === value) continue;
+        await search(text);
+        m = bestMatchAny(visibleOptions(el), value, textOf);
+        if (m) break;
       }
     }
     if (!m) {
@@ -473,13 +491,13 @@
         return { warn: `The site changed it to "${norm(el.value).slice(0, 60)}"` };
       }
       case "select": {
-        const m = bestMatch([...el.options].filter((o) => o.text.trim()), value, (o) => o.text);
+        const m = bestMatchAny([...el.options].filter((o) => o.text.trim()), value, (o) => o.text);
         if (!m) return `no option matched "${value}"`;
         setNative(el, m.item.value);
         return picked(m, m.item.text);
       }
       case "radio": {
-        const m = bestMatch(radioGroup(el), value, optionText);
+        const m = bestMatchAny(radioGroup(el), value, optionText);
         if (!m) return `no option matched "${value}"`;
         if (!m.item.checked) m.item.click();
         if (!m.item.checked) (m.item.labels?.[0] || m.item).click();
@@ -548,6 +566,41 @@
     return true;
   }
 
+  // ---------- learning: report the user's final answers on Submit / Next ----------
+
+  function harvest() {
+    const entries = [];
+    for (const { el, kind, label } of registry.values()) {
+      // Written answers are job-specific and files/consents aren't worth learning.
+      if (!label || !el.isConnected || ["button", "file", "checkbox", "textarea", "richtext"].includes(kind)) continue;
+      let value;
+      if (kind === "radio") {
+        const chosen = radioGroup(el).find((r) => r.checked);
+        value = chosen ? optionText(chosen) : "";
+      } else value = currentValue(el, kind);
+      value = norm(value);
+      if (value && value.length <= 200 && !PLACEHOLDER.test(value)) entries.push({ label: norm(label), value });
+    }
+    return entries;
+  }
+
+  const ADVANCE = /\b(submit|next|continue|save|review|apply)\b/i;
+  let lastLearn = 0;
+  function learn() {
+    if (Date.now() - lastLearn < 1500) return;
+    lastLearn = Date.now();
+    const entries = harvest();
+    if (entries.length) chrome.runtime.sendMessage({ type: "learn", entries }).catch(() => {});
+  }
+  const onClick = (e) => {
+    const b = e
+      .composedPath()
+      .find((n) => n instanceof Element && n.matches("button, input[type=submit], input[type=button], [role=button], a"));
+    if (b && ADVANCE.test(textOf(b) || b.value || b.getAttribute("aria-label") || "")) learn();
+  };
+  document.addEventListener("click", onClick, true);
+  document.addEventListener("submit", learn, true);
+
   const listener = (msg, _sender, reply) => {
     if (msg?.type === "scan") {
       scan().then(reply, (e) => reply({ error: String(e?.message || e), fields: [] }));
@@ -565,5 +618,9 @@
     return false;
   };
   chrome.runtime.onMessage.addListener(listener);
-  window.__jarDispose = () => chrome.runtime.onMessage.removeListener(listener);
+  window.__jarDispose = () => {
+    chrome.runtime.onMessage.removeListener(listener);
+    document.removeEventListener("click", onClick, true);
+    document.removeEventListener("submit", learn, true);
+  };
 })();

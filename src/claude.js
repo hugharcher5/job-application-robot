@@ -51,6 +51,8 @@ Rules:
 - Sensitive questions (gender, ethnicity, disability, criminal record, relatives at the firm, sexual orientation, veteran status and similar) use the profile's stored answers.
 - Work authorisation and sponsorship: decide from the profile's citizenship and right-to-work facts for the country the job is in.
 - select, radio, combobox and listbutton fields with an options list: value must be copied exactly from that list. If a field is marked typeahead, give the text to type into it (e.g. the university name).
+- If the profile's answer is more specific than, or worded differently from, every option (e.g. "White – Irish" when only "White" is offered), pick the closest broader option with status "fill". Don't return no_answer when a sensible option exists.
+- The profile may end with a "Learned answers" section: the candidate's own answers from earlier forms, written "question → answer". When a field asks the same thing (even worded differently), use that answer, adapted to this field's options, with status "fill". Learned answers override the rest of the profile for the same question.
 - checkbox: "true" or "false". Privacy consents and "I certify this is accurate" boxes are "true" with status "review".
 - file fields: "cv", "transcript", "cover_letter", or "" if none fits. Use "cover_letter" only for a field asking for a cover letter. Use "transcript" only if a transcript is available.
 - Written questions: first person, the candidate's voice, specific and concrete, plain British English, no clichés or filler. If maxLength is set, stay at least 10% under it (count characters); rewrite rather than truncate.

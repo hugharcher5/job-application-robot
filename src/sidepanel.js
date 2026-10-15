@@ -168,6 +168,13 @@ chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type === "progress" && (!currentTabId || msg.tabId === currentTabId)) status(msg.text);
 });
 
+// The robot adds learned answers to the profile; show them unless the user is mid-edit.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && changes.profile && document.activeElement !== $("profile")) {
+    $("profile").value = changes.profile.newValue || "";
+  }
+});
+
 loadSettings();
 activeTabId().then(async (tabId) => {
   currentTabId = tabId;

@@ -225,7 +225,11 @@ const handlers = {
   testConnection: () => testConnection(),
   fill: async ({ tabId }) => {
     const report = await fillTab(tabId);
-    await chrome.storage.session.set({ lastReport: { ...report, tabId } });
+    // Remember what the robot put in each field, so learning only keeps the user's changes.
+    const answered = {};
+    for (const it of report.items) if (it.value) answered[learnKey(it.label)] = it.value;
+    const { [`answered:${tabId}`]: earlier = {} } = await chrome.storage.session.get(`answered:${tabId}`);
+    await chrome.storage.session.set({ lastReport: { ...report, tabId }, [`answered:${tabId}`]: { ...earlier, ...answered } });
     return report;
   },
   focus: async ({ tabId, id }) => {
@@ -239,6 +243,63 @@ const handlers = {
     return markApplied(lastReport.company, lastReport.role);
   },
 };
+
+// ---------- learning: fold the user's own answers into the profile ----------
+
+const LEARNED_HEAD = "## Learned answers";
+const LEARNED_NOTE =
+  "(Added automatically from answers I typed or changed on application forms. These are my own answers: for the same question, they override anything above.)";
+const MAX_LEARNED = 150;
+const learnKey = (s) => String(s || "").toLowerCase().replace(/[*:?]+\s*$/, "").replace(/\s+/g, " ").trim();
+// Contact details are already in the profile and differ by form layout, not by answer.
+const NOT_LEARNED = /\b(password|e-?mail|phone|mobile|first name|last name|surname|full name|address|post ?code|zip|signature|today'?s date|captcha|linkedin|website)\b/i;
+
+function splitProfile(profile) {
+  const at = profile.indexOf(`\n${LEARNED_HEAD}`);
+  if (at < 0) return { base: profile.trimEnd(), learned: new Map() };
+  const learned = new Map();
+  for (const line of profile.slice(at).split("\n")) {
+    const m = line.match(/^- (.+?) → (.+)$/);
+    if (m) learned.set(learnKey(m[1]), { q: m[1], a: m[2] });
+  }
+  return { base: profile.slice(0, at).trimEnd(), learned };
+}
+
+async function learnFrom(tabId, entries) {
+  const key = `answered:${tabId}`;
+  const { [key]: answered = {} } = await chrome.storage.session.get(key);
+  const { profile = "" } = await chrome.storage.local.get("profile");
+  if (!profile.trim()) return;
+  const { base, learned } = splitProfile(profile);
+  let added = 0;
+  for (const { label, value } of entries) {
+    const k = learnKey(label);
+    const q = label.replace(/\s*[*:]+\s*$/, "").replace(/→/g, "->").replace(/\s+/g, " ").slice(0, 150);
+    const a = value.replace(/\s+/g, " ").replace(/→/g, "->").slice(0, 200);
+    if (!k || NOT_LEARNED.test(k)) continue;
+    // Keep only what the user supplied or corrected, not the robot's own answers
+    // (including its closest-option picks, e.g. "White – Irish" filled as "White").
+    const robot = (answered[k] || "").toLowerCase();
+    const mine = a.toLowerCase();
+    // Matching the robot only counts as "nothing new" if there's no older learned answer it replaces.
+    if (robot && (robot === mine || robot.includes(mine) || mine.includes(robot)) && !learned.has(k)) continue;
+    if (learned.get(k)?.a === a) continue;
+    learned.delete(k); // re-insert so the newest answers sit at the bottom
+    learned.set(k, { q, a });
+    added++;
+  }
+  if (!added) return;
+  const kept = [...learned.values()].slice(-MAX_LEARNED);
+  const section = [LEARNED_HEAD, LEARNED_NOTE, ...kept.map(({ q, a }) => `- ${q} → ${a}`)].join("\n");
+  await chrome.storage.local.set({ profile: `${base}\n\n${section}\n` });
+  progress(tabId, `Learned ${added} answer${added === 1 ? "" : "s"} from this form and added them to your profile.`);
+}
+
+// Content scripts report the user's final answers when they press Submit / Next.
+chrome.runtime.onMessage.addListener((msg, sender) => {
+  if (sender.id !== chrome.runtime.id || !sender.tab || msg?.type !== "learn" || !Array.isArray(msg.entries)) return;
+  learnFrom(sender.tab.id, msg.entries.slice(0, 200)).catch(() => {});
+});
 
 chrome.runtime.onMessage.addListener((msg, sender, reply) => {
   // Only the extension's own pages may drive it.
