@@ -205,7 +205,9 @@ async function downloadLetter(tabId) {
     const role = lastReport?.tabId === tabId ? lastReport.role : "";
     file = await makeCoverLetter(tabId, scan.page, company || scan.page.title, role || scan.page.title);
   }
-  await chrome.downloads.download({ url: file.dataUrl, filename: file.name, saveAs: false });
+  // Downloads\Cover Letters is a junction to Employment\Cover Letters (extensions
+  // can only save inside the Downloads folder)
+  await chrome.downloads.download({ url: file.dataUrl, filename: `Cover Letters/${file.name}`, saveAs: false });
   return file.name;
 }
 
