@@ -566,6 +566,33 @@
     return true;
   }
 
+  // ---------- moving to the next page (never submitting) ----------
+
+  const NEXT = /^(next|continue|next step|next page|proceed|save (and|&) continue|save (and|&) next|continue to next step)\b/i;
+  const FINAL = /\b(submit|send|apply|finish|complete|confirm)\b/i;
+
+  function nextButton() {
+    const cands = qsa("button, input[type=submit], input[type=button], [role=button], a[role=button]").filter(
+      (b) => visible(b) && !b.disabled && b.getAttribute("aria-disabled") !== "true"
+    );
+    const named = cands.map((b) => ({ b, t: norm(textOf(b) || b.value || b.getAttribute("aria-label") || "") }));
+    return named.find(({ t }) => NEXT.test(t) && !FINAL.test(t))?.b || null;
+  }
+
+  // Labels of the visible form controls: identifies the page without opening any dropdowns.
+  function signature() {
+    const els = qsa("input:not([type=hidden]), select, textarea, [role='combobox']").filter(visible);
+    return els.length ? els.map((el) => labelInfo(el).text).join("|") : "";
+  }
+
+  function advance() {
+    const b = nextButton();
+    if (!b) return false;
+    b.scrollIntoView({ block: "center" });
+    b.click();
+    return true;
+  }
+
   // ---------- learning: report the user's final answers on Submit / Next ----------
 
   function harvest() {
@@ -614,6 +641,8 @@
       clickButtons(msg.ids || []).then(() => reply(true));
       return true;
     }
+    if (msg?.type === "advance") reply(advance());
+    if (msg?.type === "signature") reply(signature());
     if (msg?.type === "focus") reply(focusField(msg.id));
     return false;
   };

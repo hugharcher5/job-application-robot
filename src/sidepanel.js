@@ -35,13 +35,14 @@ function render(report) {
   if (report.flags?.login) warnings.push("This page wants a login. Sign in yourself, then press Fill again.");
   if (report.flags?.captcha) warnings.push("There's a CAPTCHA on this page. Solve it yourself before submitting.");
   if (report.flags?.submitted) warnings.push("This looks submitted. Press Mark applied to update Notion.");
+  if (report.stuck) warnings.push(report.stuck);
   banner.hidden = !warnings.length;
   banner.textContent = warnings.join(" ");
 
   if (report.message) return status(report.message);
   const counts = Object.fromEntries(GROUPS.map(([g]) => [g, report.items.filter((i) => i.group === g).length]));
   status(
-    `${report.company || "Form"}${report.role ? ` · ${report.role}` : ""}: ${counts.done} done, ${counts.review} to review, ${counts.missing} unanswered`
+    `${report.company || "Form"}${report.role ? ` · ${report.role}` : ""}${report.pages > 1 ? ` (page ${report.pages})` : ""}: ${counts.done} done, ${counts.review} to review, ${counts.missing} unanswered`
   );
 
   for (const [group, title] of GROUPS) {
@@ -91,7 +92,9 @@ $("fill").onclick = () =>
     currentTabId = await activeTabId();
     $("report").replaceChildren();
     status("Starting…");
-    render(await call("fill", { tabId: currentTabId }));
+    const autoAdvance = $("autoAdvance").checked;
+    await chrome.storage.local.set({ autoAdvance });
+    render(await call("fill", { tabId: currentTabId, autoAdvance }));
   });
 
 $("letter").onclick = () =>
@@ -134,9 +137,19 @@ async function readFile(input) {
   return { name: file.name, type: file.type, dataUrl };
 }
 
+const LEARNED_HEAD = "\n## Learned answers";
+
+// Pasting a fresh profile shouldn't wipe the answers the robot has learned.
+async function withLearned(profile) {
+  if (profile.includes(LEARNED_HEAD)) return profile;
+  const { profile: old = "" } = await chrome.storage.local.get("profile");
+  const at = old.indexOf(LEARNED_HEAD);
+  return at < 0 ? profile : `${profile.trimEnd()}\n${old.slice(at)}`;
+}
+
 $("saveSettings").onclick = async () => {
   const update = {
-    profile: $("profile").value,
+    profile: await withLearned($("profile").value),
     letterExamples: $("letterExamples").value,
     notionDatabaseId: $("notionDatabaseId").value.trim().replace(/-/g, ""),
   };
@@ -153,7 +166,8 @@ $("saveSettings").onclick = async () => {
 };
 
 async function loadSettings() {
-  const s = await chrome.storage.local.get(["profile", "letterExamples", "notionDatabaseId", "cv", "transcript"]);
+  const s = await chrome.storage.local.get(["profile", "letterExamples", "notionDatabaseId", "cv", "transcript", "autoAdvance"]);
+  $("autoAdvance").checked = s.autoAdvance !== false;
   $("profile").value = s.profile || "";
   $("letterExamples").value = s.letterExamples || "";
   $("notionDatabaseId").value = s.notionDatabaseId || "";

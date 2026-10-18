@@ -155,6 +155,26 @@ async function fillTab(tabId) {
     for (const f of pending) fieldInfo.set(f.id, f);
   }
 
+  // One more try for fields the form wouldn't accept: fresh options plus the reason it failed.
+  const failed = [...allResults.values()].filter((r) => !r.ok && fieldInfo.get(r.id)?.type !== "file");
+  if (failed.length) {
+    progress(tabId, `Retrying ${failed.length} field${failed.length === 1 ? "" : "s"}…`);
+    const rescan = await scanTab(tabId);
+    const fresh = new Map(rescan.fields.map((f) => [f.id, f]));
+    const retry = failed
+      .filter((r) => fresh.has(r.id))
+      .map((r) => ({ ...fresh.get(r.id), previous: { value: allAnswers.get(r.id)?.value || "", error: r.error } }));
+    if (retry.length) {
+      const out = await answerFields({ profile, page: rescan.page, fields: retry, filesAvailable: [...Object.keys(files), "cover_letter"] });
+      const known = new Set(retry.map((f) => f.id));
+      const answers = out.answers.filter((a) => known.has(a.id));
+      for (const a of answers) allAnswers.set(a.id, a);
+      for (const f of retry) fieldInfo.set(f.id, fresh.get(f.id));
+      const toFill = answers.filter((a) => (a.status === "fill" || a.status === "review") && a.value !== "");
+      for (const r of await fillInFrames(tabId, toFill, files, fieldInfo)) allResults.set(r.id, r);
+    }
+  }
+
   const items = [];
   for (const [id, a] of allAnswers) {
     const f = fieldInfo.get(id);
@@ -221,15 +241,76 @@ async function keepAlive(work) {
   }
 }
 
+// ---------- auto-advance: fill, press Next, repeat (never Submit) ----------
+
+const MAX_PAGES = 12;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// The form's field labels across frames: changes when a new page loads, not when
+// validation errors appear on the same page.
+async function pageSignature(tabId) {
+  const frames = (await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null)) || [{ frameId: 0 }];
+  const parts = [];
+  for (const f of frames) {
+    const s = await chrome.tabs.sendMessage(tabId, { type: "signature" }, { frameId: f.frameId }).catch(() => null);
+    if (s) parts.push(s);
+  }
+  return parts.join("\n");
+}
+
+async function clickNext(tabId) {
+  const frames = (await chrome.webNavigation.getAllFrames({ tabId }).catch(() => null)) || [{ frameId: 0 }];
+  for (const f of frames) {
+    if (await chrome.tabs.sendMessage(tabId, { type: "advance" }, { frameId: f.frameId }).catch(() => false)) return true;
+  }
+  return false;
+}
+
+// Waits for the next page's form to appear. False if it never did (usually a validation error).
+async function waitForNewPage(tabId, before) {
+  for (let i = 0; i < 20; i++) {
+    await sleep(750);
+    const tab = await chrome.tabs.get(tabId).catch(() => null);
+    if (tab?.status !== "complete") continue;
+    await inject(tabId);
+    const now = await pageSignature(tabId);
+    if (now && now !== before) {
+      await sleep(800); // let the new page finish rendering its widgets
+      return true;
+    }
+  }
+  return false;
+}
+
+// Stop and hand over when the user is needed on this page.
+const needsUser = (report) =>
+  report.flags?.login || report.flags?.captcha || report.flags?.submitted || report.items.some((i) => i.group === "missing" && i.required);
+
+async function remember(tabId, report) {
+  // Remember what the robot put in each field, so learning only keeps the user's changes.
+  const answered = {};
+  for (const it of report.items) if (it.value) answered[learnKey(it.label)] = it.value;
+  const { [`answered:${tabId}`]: earlier = {} } = await chrome.storage.session.get(`answered:${tabId}`);
+  await chrome.storage.session.set({ lastReport: { ...report, tabId }, [`answered:${tabId}`]: { ...earlier, ...answered } });
+}
+
 const handlers = {
   testConnection: () => testConnection(),
-  fill: async ({ tabId }) => {
-    const report = await fillTab(tabId);
-    // Remember what the robot put in each field, so learning only keeps the user's changes.
-    const answered = {};
-    for (const it of report.items) if (it.value) answered[learnKey(it.label)] = it.value;
-    const { [`answered:${tabId}`]: earlier = {} } = await chrome.storage.session.get(`answered:${tabId}`);
-    await chrome.storage.session.set({ lastReport: { ...report, tabId }, [`answered:${tabId}`]: { ...earlier, ...answered } });
+  fill: async ({ tabId, autoAdvance }) => {
+    let report;
+    for (let page = 1; page <= MAX_PAGES; page++) {
+      report = await fillTab(tabId);
+      report.pages = page;
+      await remember(tabId, report);
+      if (!autoAdvance || needsUser(report)) break;
+      const before = await pageSignature(tabId);
+      if (!(await clickNext(tabId))) break; // last page: Submit is the user's
+      progress(tabId, `Page ${page} done. Moving to the next page…`);
+      if (!(await waitForNewPage(tabId, before))) {
+        report.stuck = `Filled ${page} page${page === 1 ? "" : "s"}, but the form didn't move on. Check this page for errors.`;
+        break;
+      }
+    }
     return report;
   },
   focus: async ({ tabId, id }) => {

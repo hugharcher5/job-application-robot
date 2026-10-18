@@ -1,9 +1,8 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-schema";
 
-export const MODEL = "claude-opus-5-5";
-// Refusals are rerouted server-side to Anthropic's recommended fallback model.
-const FALLBACK = { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" };
+// The cheapest current model; fast enough to keep form filling quick.
+export const MODEL = "claude-haiku-5-5";
 
 export async function getClient() {
   const { apiKey } = await chrome.storage.local.get("apiKey");
@@ -35,7 +34,6 @@ export async function testConnection() {
     model: MODEL,
     max_tokens: 1000,
     output_config: { effort: "low" },
-    ...FALLBACK,
     messages: [{ role: "user", content: "Reply with exactly: connected" }],
   });
   checkStop(response);
@@ -43,12 +41,13 @@ export async function testConnection() {
   return `${response.model}: ${text.trim()}`;
 }
 
-const ANSWER_RULES = `You fill in job application forms on behalf of the candidate described in the profile. Work quickly and fill as much as you can; the candidate reviews everything before submitting.
+const ANSWER_RULES = `You fill in job application forms on behalf of the candidate described in the profile. Work quickly and fill every field you can; the candidate reviews everything before submitting. Answer the way the candidate would if they looked at the question themselves: make the best decision from what you know rather than leaving it for them.
 
 Rules:
+- Choices between options (location, office, business area, division, desk, team, rotation, start date, programme track) follow the profile's "Decision rules". Reason about this firm and role: where the team actually sits, how competitive each option is, and what the job page says. Always pick one, with status "fill" (or "review" if the call is close, noting the runner-up).
 - Every fact you state must come from the profile. Never invent employers, dates, grades, names, referrers or achievements. You may reason from profile facts: convert grade scales, work out eligibility, pick the closest dropdown option, infer country of residence, compute a cumulative figure from year-by-year results.
 - Answer the question actually asked. "GPA" or "degree GPA" means the profile's degree GPA. If a form asks specifically for cumulative, overall or first-year results, give that figure instead.
-- Sensitive questions (gender, ethnicity, disability, criminal record, relatives at the firm, sexual orientation, veteran status and similar) use the profile's stored answers.
+- Sensitive questions (gender, ethnicity, religion, disability, criminal record, relatives at the firm, sexual orientation, veteran status, socio-economic background and similar) use the profile's stored answers, mapped to the closest listed option, with status "fill". Never leave these unanswered: if nothing fits, pick the "prefer not to say" option.
 - Work authorisation and sponsorship: decide from the profile's citizenship and right-to-work facts for the country the job is in.
 - select, radio, combobox and listbutton fields with an options list: value must be copied exactly from that list. If a field is marked typeahead, give the text to type into it (e.g. the university name).
 - If the profile's answer is more specific than, or worded differently from, every option (e.g. "White – Irish" when only "White" is offered), pick the closest broader option with status "fill". Don't return no_answer when a sensible option exists.
@@ -57,7 +56,8 @@ Rules:
 - file fields: "cv", "transcript", "cover_letter", or "" if none fits. Use "cover_letter" only for a field asking for a cover letter. Use "transcript" only if a transcript is available.
 - Written questions: first person, the candidate's voice, specific and concrete, plain British English, no clichés or filler. If maxLength is set, stay at least 10% under it (count characters); rewrite rather than truncate.
 - date fields (type "date"): YYYY-MM-DD.
-- status: "fill" when confident; "review" for judgement calls, written answers, legal ticks, or guessed options; "no_answer" only when the answer genuinely needs a fact the profile lacks (set value to ""); "skip" for things that should not be touched (fields already holding the right value, irrelevant optional fields, search boxes, add-row buttons).
+- status: "fill" when confident; "review" for close judgement calls, written answers and legal ticks (these are still filled); "no_answer" only for things no reasoning can supply: one-time codes, passwords, a named referrer, an ID number the profile lacks (set value to ""); "skip" for things that should not be touched (fields already holding the right value, irrelevant optional fields, search boxes, add-row buttons). Optional fields that a reasonable candidate would answer, answer.
+- A field may carry "previous": an earlier answer that the form wouldn't accept, with the reason. Choose again from the field's current options or wording; don't repeat a value that failed.
 - Repeated sections (work experience, education, activities): fill rows in the order the profile gives; if the profile sets no order, most recent and most relevant first.
 - clicks: ids of "button" fields (e.g. "Add another" under Education or Work Experience) that must be pressed to create rows the profile needs. Never anything that submits or moves to the next page.
 - note: at most 12 words, only when useful (why it needs review, or what is missing).
@@ -94,7 +94,6 @@ export async function answerFields({ profile, page, fields, filesAvailable, alre
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: "medium", format: betaJSONSchemaOutputFormat(ANSWER_SCHEMA, { transform: false }) },
-    ...FALLBACK,
     system: [
       { type: "text", text: ANSWER_RULES },
       // The profile rarely changes, so cache it across applications.
@@ -140,7 +139,6 @@ export async function writeCoverLetter({ profile, examples, page, company, role 
     model: MODEL,
     max_tokens: 16000,
     output_config: { effort: "high", format: betaJSONSchemaOutputFormat(LETTER_SCHEMA, { transform: false }) },
-    ...FALLBACK,
     system: [
       {
         type: "text",

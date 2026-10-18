@@ -49,6 +49,8 @@
     label.f input, label.f textarea { display: block; width: 100%; margin-top: 4px; font: inherit; color: var(--fg); background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; }
     textarea { min-height: 110px; resize: vertical; }
     .saved { font-size: 12px; color: var(--muted); }
+    label.check { display: flex; align-items: center; gap: 8px; margin-top: 8px; font-size: 13px; color: var(--muted); min-height: 32px; cursor: pointer; }
+    label.check input { width: 18px; height: 18px; accent-color: var(--accent); }
     @media (prefers-reduced-motion: no-preference) { button { transition: background-color .15s, border-color .15s; } }
   </style>
 </head>
@@ -56,6 +58,7 @@
   <h1>Job Application Robot</h1>
   <p class="sub" id="status" role="status" aria-live="polite">Open an application form, then press Fill.</p>
   <button class="primary" id="fill">Fill this application</button>
+  <label class="check"><input type="checkbox" id="autoAdvance" checked> Keep going: press Next on each page (never Submit)</label>
   <div class="row">
     <button id="letter">Download cover letter</button>
     <button id="notion">Mark applied</button>
