@@ -118,6 +118,7 @@
 
   function kindOf(el) {
     if (el.tagName === "BUTTON") return el.getAttribute("aria-haspopup") === "listbox" ? "listbutton" : "button";
+    if (el.getAttribute("role") === "button" || (el.tagName === "INPUT" && el.type === "button")) return "button";
     if (el.tagName === "SELECT") return "select";
     if (el.isContentEditable) return "richtext";
     if (el.getAttribute("role") === "combobox") return "combobox";
@@ -199,7 +200,21 @@
     }
   }
 
-  const ADD_BUTTON = /^\s*(\+\s*)?add( another)?\b/i;
+  // "Add", "+ Add another", "Add Work Experience", "Add certification", icon buttons labelled "Add …".
+  const ADD_BUTTON = /^\s*(\+\s*)?add\b/i;
+  const buttonText = (el) => textOf(el) || norm(el.value) || norm(el.getAttribute("aria-label")) || norm(el.title);
+
+  // The heading of the section a button sits in (Work Experience, Certifications…).
+  function sectionTitle(el) {
+    for (let n = el.parentElement, i = 0; n && i < 8; n = n.parentElement, i++) {
+      const by = n.getAttribute("aria-labelledby");
+      const named = by && textOf(byId(n, by.split(/\s+/)[0]));
+      if (named) return named;
+      const h = n.querySelector("h1, h2, h3, h4, h5, legend, [role='heading']");
+      if (h && textOf(h) && !ADD_BUTTON.test(textOf(h))) return textOf(h);
+    }
+    return "";
+  }
 
   function newId(el) {
     let id = el.dataset.jarId;
@@ -215,13 +230,13 @@
     const fields = [];
     const els = qsa(
       "input:not([type=hidden]):not([type=submit]):not([type=button]):not([type=image]):not([type=reset]):not([type=password]):not([type=search])," +
-        "select, textarea, [contenteditable]:not([contenteditable='false']), [role='combobox'], button"
+        "select, textarea, [contenteditable]:not([contenteditable='false']), [role='combobox'], button, [role='button'], input[type=button]"
     );
     for (const el of els) {
       if (seen.has(el)) continue;
       seen.add(el);
       const kind = kindOf(el);
-      if (kind === "button" && !ADD_BUTTON.test(textOf(el))) continue;
+      if (kind === "button" && !ADD_BUTTON.test(buttonText(el))) continue;
       if (kind === "richtext" && el.parentElement?.isContentEditable) continue; // nested editable
       if (el.disabled) continue;
       if (el.readOnly && kind !== "combobox") continue; // non-searchable react-selects are readOnly
@@ -275,10 +290,9 @@
         if (opts.length) field.options = opts.slice(0, 250);
         if (opts.length > 250 || (kind === "combobox" && !opts.length)) field.typeahead = true;
       } else if (kind === "button") {
-        field.label = norm(el.getAttribute("aria-label")) || textOf(el);
-        const section = el.closest("section, fieldset, [data-automation-id]");
-        const head = section?.querySelector("h2, h3, h4, legend");
-        if (head) field.section = textOf(head);
+        field.label = norm(el.getAttribute("aria-label")) || buttonText(el);
+        const section = sectionTitle(el);
+        if (section) field.section = section.slice(0, 120);
       } else {
         const cur = currentValue(el, kind);
         if (cur) field.current = cur.slice(0, 500);

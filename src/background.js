@@ -97,6 +97,9 @@ async function makeCoverLetter(tabId, page, company, role) {
   return file;
 }
 
+// Sections whose rows the profile can fill.
+const PROFILE_SECTIONS = /experience|employment|work history|education|certif|licen|qualification|language/i;
+
 async function fillTab(tabId) {
   const { profile } = await chrome.storage.local.get("profile");
   if (!profile?.trim()) throw new Error("Add your profile under Settings first.");
@@ -117,7 +120,7 @@ async function fillTab(tabId) {
   let role = "";
   let pending = scan.fields;
 
-  for (let round = 0; round < 3 && pending.length; round++) {
+  for (let round = 0; round < 4 && pending.length; round++) {
     progress(tabId, round ? "Filling the new rows…" : `Asking Claude about ${pending.length} fields…`);
     const filesAvailable = [...Object.keys(files), "cover_letter"];
     const alreadyFilled = [...allAnswers.values()]
@@ -143,8 +146,14 @@ async function fillTab(tabId) {
     progress(tabId, `Filling ${toFill.length} fields…`);
     for (const r of await fillInFrames(tabId, toFill, files, fieldInfo)) allResults.set(r.id, r);
 
-    // Press "Add another" buttons Claude asked for, then fill the new fields.
-    const clicks = out.clicks.filter((id) => fieldInfo.get(id)?.type === "button");
+    // Press the "Add" buttons Claude asked for (an id repeated once per extra row), then fill the new rows.
+    let clicks = out.clicks.filter((id) => fieldInfo.get(id)?.type === "button");
+    // First pass and Claude added nothing: open one row in each profile-backed section anyway.
+    if (!clicks.length && round === 0) {
+      clicks = pending
+        .filter((f) => f.type === "button" && PROFILE_SECTIONS.test(`${f.section || ""} ${f.label}`))
+        .map((f) => f.id);
+    }
     if (!clicks.length) break;
     for (const [frame, list] of byFrame(clicks.map((id) => ({ id })))) {
       await chrome.tabs.sendMessage(tabId, { type: "click", ids: list.map((x) => x.id) }, { frameId: Number(frame) }).catch(() => {});
@@ -153,6 +162,9 @@ async function fillTab(tabId) {
     scan = await scanTab(tabId);
     pending = scan.fields.filter((f) => !fieldInfo.has(f.id));
     for (const f of pending) fieldInfo.set(f.id, f);
+    if (!pending.length) break;
+    // Keep the Add buttons in view so Claude can open further rows next round.
+    pending.push(...scan.fields.filter((f) => f.type === "button" && !pending.includes(f)));
   }
 
   // One more try for fields the form wouldn't accept: fresh options plus the reason it failed.

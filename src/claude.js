@@ -59,7 +59,7 @@ Rules:
 - status: "fill" when confident; "review" for close judgement calls, written answers and legal ticks (these are still filled); "no_answer" only for things no reasoning can supply: one-time codes, passwords, a named referrer, an ID number the profile lacks (set value to ""); "skip" for things that should not be touched (fields already holding the right value, irrelevant optional fields, search boxes, add-row buttons). Optional fields that a reasonable candidate would answer, answer.
 - A field may carry "previous": an earlier answer that the form wouldn't accept, with the reason. Choose again from the field's current options or wording; don't repeat a value that failed.
 - Repeated sections (work experience, education, activities): fill rows in the order the profile gives; if the profile sets no order, most recent and most relevant first.
-- clicks: ids of "button" fields (e.g. "Add another" under Education or Work Experience) that must be pressed to create rows the profile needs. Never anything that submits or moves to the next page.
+- clicks: "Add" buttons (Add another, Add Work Experience, Add Certification, Add Language…) to press so the form has a row for every matching profile entry. Count first: rows the profile needs in that section minus empty rows already shown, and repeat the button's id that many times (e.g. 3 more certifications → the id 3 times). Always add rows for every experience, education entry, certification and language in the profile unless the form caps them. Never list anything that submits or moves to the next page.
 - note: at most 12 words, only when useful (why it needs review, or what is missing).
 - company and role: read them from the page.`;
 
