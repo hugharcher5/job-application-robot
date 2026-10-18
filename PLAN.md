@@ -60,8 +60,10 @@ side panel (UI) ── background service worker ── Claude API
 
 ## Model
 
-`claude-haiku-5-5` (the cheapest current model): medium effort for form
-filling, high for cover letters. Haiku has no server-side refusal fallback. Calls go from the extension to the API
+Form filling: `claude-haiku-5-5` (the cheapest current model), medium effort.
+Cover letters: `claude-sonnet-5-5` with server-side refusal fallback. It first
+finds and reads the real job listing with web search/fetch, then writes from
+that brief (falls back to the page text if web tools are off for the org). Calls go from the extension to the API
 with Hugh's own key, stored in `chrome.storage.local`.
 
 ## Status (v1.0)

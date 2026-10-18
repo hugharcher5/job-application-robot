@@ -3,6 +3,14 @@ import { betaJSONSchemaOutputFormat } from "@anthropic-ai/sdk/helpers/beta/json-
 
 // The cheapest current model; fast enough to keep form filling quick.
 export const MODEL = "claude-haiku-5-5";
+// Cover letters need better writing and web research, so they use Sonnet.
+export const LETTER_MODEL = "claude-sonnet-5-5";
+// Sonnet refusals are rerouted server-side to Anthropic's recommended fallback model.
+const FALLBACK = { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" };
+const WEB_TOOLS = [
+  { type: "web_search_20260209", name: "web_search", max_uses: 4 },
+  { type: "web_fetch_20260209", name: "web_fetch", max_uses: 4 },
+];
 
 export async function getClient() {
   const { apiKey } = await chrome.storage.local.get("apiKey");
@@ -133,16 +141,64 @@ const LETTER_SCHEMA = {
   },
 };
 
-export async function writeCoverLetter({ profile, examples, page, company, role }) {
+// Finds and reads the real job listing (the application form often doesn't show it)
+// and returns a short brief for the letter. Returns "" if the web tools aren't available.
+export async function researchJob({ page, company, role }) {
+  const client = await getClient();
+  const messages = [
+    {
+      role: "user",
+      content: `I'm applying for this role and need the official job listing.
+Firm: ${company}
+Role: ${role}
+Application page: ${page.title}
+URL: ${page.url}
+
+<application_page_text>
+${page.text.slice(0, 8000)}
+</application_page_text>
+
+Find and read the official listing for this exact role, programme year and city: the firm's own careers site first, then a reliable job board. Workday application URLs usually show the listing at the same address without "/apply". Then write a brief, under 300 words:
+- Listing URL
+- What the team or programme does, and its structure (training, rotations, length)
+- Day-to-day tasks
+- Qualities and skills they ask for, in their words
+- Anything specific to this firm or team worth naming in a cover letter
+If you can't find the listing, say so in one line, then summarise what the application page itself says about the role.`,
+    },
+  ];
+  for (let i = 0; i < 4; i++) {
+    const response = await client.beta.messages.create({
+      model: LETTER_MODEL,
+      max_tokens: 8000,
+      output_config: { effort: "medium" },
+      tools: WEB_TOOLS,
+      ...FALLBACK,
+      messages,
+    });
+    // Long searches pause; send the turn back to let it carry on.
+    if (response.stop_reason === "pause_turn") {
+      messages.push({ role: "assistant", content: response.content });
+      continue;
+    }
+    checkStop(response);
+    return response.content.filter((b) => b.type === "text").map((b) => b.text).join("").trim();
+  }
+  return "";
+}
+
+export async function writeCoverLetter({ profile, examples, page, company, role, brief = "" }) {
   const client = await getClient();
   const response = await parsed(client, {
-    model: MODEL,
+    model: LETTER_MODEL,
     max_tokens: 16000,
     output_config: { effort: "high", format: betaJSONSchemaOutputFormat(LETTER_SCHEMA, { transform: false }) },
+    ...FALLBACK,
     system: [
       {
         type: "text",
-        text: `You write one-page cover letters for the candidate in the profile. Use only facts from the profile; never invent anything. Match the structure, tone and length of the example letters if given: an opening line naming the programme, three or four body paragraphs tailored to this role and firm, and a closing paragraph. Plain British English, specific, no clichés. Total body under 430 words so it fits one page.
+        text: `You write one-page cover letters for the candidate in the profile. Use only facts from the profile; never invent anything. Match the structure, tone and length of the example letters if given: an opening line naming the programme, three or four body paragraphs tailored to this role and firm, and a closing paragraph. Plain British English, specific, no clichés, no em dashes. Total body under 400 words so it fits one page.
+Tailor it to the job listing brief: map the candidate's experience to the listing's actual tasks and the qualities it asks for, and make "why this firm and team" name specifics from the listing. Never comment on how much or little the listing or application page says.
 name: the candidate's full name in capitals. contact_line: email | phone | website | LinkedIn from the profile, separated by "  |  ". recipient_lines: firm name, then team/division and city. greeting: "Dear Hiring Team,". sign_off: "Yours sincerely,".`,
       },
       { type: "text", text: `<profile>\n${profile}\n</profile>`, cache_control: { type: "ephemeral" } },
@@ -150,7 +206,9 @@ name: the candidate's full name in capitals. contact_line: email | phone | websi
     messages: [
       {
         role: "user",
-        content: `${examples ? `<example_letters>\n${examples}\n</example_letters>\n\n` : ""}Firm: ${company}\nRole: ${role}\nURL: ${page.url}\n\n<job_page>\n${page.text}\n</job_page>\n\nWrite the cover letter.`,
+        content: `${examples ? `<example_letters>\n${examples}\n</example_letters>\n\n` : ""}Firm: ${company}\nRole: ${role}\nURL: ${page.url}\n\n${
+          brief ? `<job_listing_brief>\n${brief}\n</job_listing_brief>\n\n` : ""
+        }<application_page>\n${page.text}\n</application_page>\n\nWrite the cover letter.`,
       },
     ],
   });

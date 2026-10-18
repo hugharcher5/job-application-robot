@@ -1,4 +1,4 @@
-import { answerFields, testConnection, writeCoverLetter } from "./claude.js";
+import { answerFields, researchJob, testConnection, writeCoverLetter } from "./claude.js";
 import { letterPdf } from "./pdf.js";
 import { markApplied } from "./notion.js";
 
@@ -83,8 +83,16 @@ async function loadFiles() {
 
 async function makeCoverLetter(tabId, page, company, role) {
   const { profile, letterExamples } = await chrome.storage.local.get(["profile", "letterExamples"]);
+  progress(tabId, "Reading the job listing…");
+  let brief = "";
+  try {
+    brief = await researchJob({ page, company, role });
+  } catch (e) {
+    // Web search may be switched off for the API key's organisation; write from the page instead.
+    progress(tabId, `Couldn't look up the listing (${e.message}). Writing from this page…`);
+  }
   progress(tabId, "Writing a cover letter…");
-  const letter = await writeCoverLetter({ profile, examples: letterExamples, page, company, role });
+  const letter = await writeCoverLetter({ profile, examples: letterExamples, page, company, role, brief });
   const dataUrl = await letterPdf(letter);
   const who = letter.name
     .split(/\s+/)
